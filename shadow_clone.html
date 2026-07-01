@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>เงาแยกร่าง Jutsu 🥷</title>
+<style>
+  body {
+    background: #0d0d0d;
+    color: #eee;
+    font-family: "Tahoma", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  h1 { color: #ff9d2f; margin-bottom: 5px; }
+  .sub { color: #888; margin-top: 0; margin-bottom: 20px; font-size: 14px; }
+  .row {
+    display: flex;
+    gap: 30px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  video { display: none; }
+  canvas {
+    border: 2px solid #ff9d2f;
+    border-radius: 8px;
+    background: #000;
+  }
+  .panel {
+    background: #1a1a1a;
+    padding: 15px 20px;
+    border-radius: 10px;
+    min-width: 260px;
+  }
+  .ctrl { margin-bottom: 14px; }
+  label { display: block; font-size: 13px; color: #ccc; margin-bottom: 4px; }
+  input[type=range] { width: 100%; }
+  button {
+    background: #ff9d2f;
+    border: none;
+    color: #111;
+    font-weight: bold;
+    padding: 10px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-right: 8px;
+    margin-top: 6px;
+  }
+  button:disabled { background: #555; cursor: not-allowed; }
+  #status { font-size: 13px; color: #6f6; margin-top: 10px; min-height: 18px; }
+</style>
+</head>
+<body>
+
+<h1>เงาแยกร่าง (Shadow Clone Jutsu) 🍥</h1>
+<p class="sub">เปิดกล้อง แล้วขยับตัว โคลนตัวเองจะเด้งตามในหน้าต่างแยก</p>
+
+<div class="row">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="preview" width="480" height="360"></canvas>
+
+  <div class="panel">
+    <button id="startBtn">🎥 เปิดกล้อง</button>
+    <button id="openWinBtn" disabled>🪟 เปิดหน้าต่างเงาแยกร่าง</button>
+
+    <div class="ctrl">
+      <label>จำนวนร่าง: <span id="cloneCountVal">5</span></label>
+      <input type="range" id="cloneCount" min="2" max="10" value="5">
+    </div>
+    <div class="ctrl">
+      <label>ระยะห่างแนวนอน (px): <span id="spreadVal">45</span></label>
+      <input type="range" id="spread" min="0" max="150" value="45">
+    </div>
+    <div class="ctrl">
+      <label>ระยะห่างแนวตั้ง (px): <span id="spreadYVal">10</span></label>
+      <input type="range" id="spreadY" min="-60" max="60" value="10">
+    </div>
+    <div class="ctrl">
+      <label>ความล่าของแต่ละร่าง (เฟรม): <span id="lagVal">4</span></label>
+      <input type="range" id="lag" min="1" max="15" value="4">
+    </div>
+    <div class="ctrl">
+      <label>ความโปร่งแสงร่างเก่าสุด: <span id="fadeVal">0.15</span></label>
+      <input type="range" id="fade" min="5" max="90" value="15">
+    </div>
+    <label><input type="checkbox" id="mirror" checked> กลับด้านเหมือนกระจก</label>
+    <div id="status">รอเปิดกล้อง...</div>
+  </div>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const preview = document.getElementById('preview');
+const pctx = preview.getContext('2d');
+const startBtn = document.getElementById('startBtn');
+const openWinBtn = document.getElementById('openWinBtn');
+const statusEl = document.getElementById('status');
+
+const cloneCountEl = document.getElementById('cloneCount');
+const spreadEl = document.getElementById('spread');
+const spreadYEl = document.getElementById('spreadY');
+const lagEl = document.getElementById('lag');
+const fadeEl = document.getElementById('fade');
+const mirrorEl = document.getElementById('mirror');
+
+[cloneCountEl, spreadEl, spreadYEl, lagEl, fadeEl].forEach(el => {
+  el.addEventListener('input', updateLabels);
+});
+function updateLabels() {
+  document.getElementById('cloneCountVal').textContent = cloneCountEl.value;
+  document.getElementById('spreadVal').textContent = spreadEl.value;
+  document.getElementById('spreadYVal').textContent = spreadYEl.value;
+  document.getElementById('lagVal').textContent = lagEl.value;
+  document.getElementById('fadeVal').textContent = (fadeEl.value / 100).toFixed(2);
+}
+updateLabels();
+
+let stream = null;
+let running = false;
+let history = []; // buffer of past frames (as ImageBitmap)
+const MAX_HISTORY = 200;
+
+let popup = null;
+let outCanvasSize = { w: 640, h: 480 };
+
+startBtn.addEventListener('click', async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+    video.srcObject = stream;
+    await video.play();
+    running = true;
+    openWinBtn.disabled = false;
+    startBtn.disabled = true;
+    statusEl.textContent = '✅ กล้องเปิดแล้ว กำลังจับภาพ...';
+    requestAnimationFrame(loop);
+  } catch (err) {
+    statusEl.textContent = '❌ เปิดกล้องไม่ได้: ' + err.message;
+  }
+});
+
+openWinBtn.addEventListener('click', () => {
+  if (popup && !popup.closed) { popup.focus(); return; }
+
+  popup = window.open('', 'shadowClone', 'width=900,height=700');
+  if (!popup) {
+    statusEl.textContent = '❌ ป๊อปอัปถูกบล็อก กรุณาอนุญาต popup ให้หน้านี้';
+    return;
+  }
+  popup.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>เงาแยกร่าง - Output 🥷</title>
+      <style>
+        body { margin:0; background:#000; display:flex; align-items:center; justify-content:center; height:100vh; }
+        canvas { max-width:100%; max-height:100%; }
+      </style>
+    </head>
+    <body>
+      <canvas id="outCanvas" width="${outCanvasSize.w}" height="${outCanvasSize.h}"></canvas>
+      <script>
+        const canvas = document.getElementById('outCanvas');
+        const ctx = canvas.getContext('2d');
+        window.addEventListener('message', (e) => {
+          if (e.data && e.data.bitmap) {
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            ctx.drawImage(e.data.bitmap, 0, 0, canvas.width, canvas.height);
+            e.data.bitmap.close();
+          }
+        });
+      <\/script>
+    </body>
+    </html>
+  `);
+  popup.document.close();
+  statusEl.textContent = '🪟 เปิดหน้าต่างเงาแยกร่างแล้ว!';
+});
+
+// offscreen canvas used to build the composite before sending it out
+const compCanvas = document.createElement('canvas');
+compCanvas.width = outCanvasSize.w;
+compCanvas.height = outCanvasSize.h;
+const cctx = compCanvas.getContext('2d');
+
+let frameCounter = 0;
+
+async function loop() {
+  if (!running) return;
+
+  // 1. วาดเฟรมปัจจุบันลง preview (mirror ถ้าติ๊กไว้)
+  pctx.save();
+  if (mirrorEl.checked) {
+    pctx.translate(preview.width, 0);
+    pctx.scale(-1, 1);
+  }
+  pctx.drawImage(video, 0, 0, preview.width, preview.height);
+  pctx.restore();
+
+  // 2. เก็บเฟรมนี้เข้า history (ทุกเฟรม เพื่อความลื่นไหลตอนเลือกช่วง lag)
+  const snap = document.createElement('canvas');
+  snap.width = outCanvasSize.w;
+  snap.height = outCanvasSize.h;
+  const sctx = snap.getContext('2d');
+  if (mirrorEl.checked) {
+    sctx.translate(snap.width, 0);
+    sctx.scale(-1, 1);
+  }
+  sctx.drawImage(video, 0, 0, snap.width, snap.height);
+  const bitmap = await createImageBitmap(snap);
+  history.push(bitmap);
+  if (history.length > MAX_HISTORY) {
+    history.shift().close();
+  }
+
+  // 3. ประกอบภาพ "เงาแยกร่าง" จาก history
+  const numClones = parseInt(cloneCountEl.value, 10);
+  const spread = parseInt(spreadEl.value, 10);
+  const spreadY = parseInt(spreadYEl.value, 10);
+  const lag = parseInt(lagEl.value, 10);
+  const minAlpha = parseInt(fadeEl.value, 10) / 100;
+
+  cctx.clearRect(0, 0, compCanvas.width, compCanvas.height);
+
+  // วาดจากร่างเก่าสุด (โปร่งสุด, offset มากสุด) ไปร่างล่าสุด (ทึบสุด, กลางภาพ)
+  for (let i = numClones - 1; i >= 0; i--) {
+    const idx = history.length - 1 - i * lag;
+    if (idx < 0) continue;
+    const frame = history[idx];
+    const t = numClones <= 1 ? 1 : 1 - (i / (numClones - 1)); // 0 = เก่าสุด, 1 = ใหม่สุด
+    const alpha = minAlpha + (1 - minAlpha) * t;
+    const offsetX = i * spread * (i % 2 === 0 ? 1 : -1) * 0.6; // สลับซ้ายขวาเล็กน้อยให้ดูฟุ้ง
+    const offsetY = i * spreadY * 0.5;
+
+    cctx.globalAlpha = alpha;
+    cctx.drawImage(frame, offsetX, offsetY, compCanvas.width, compCanvas.height);
+  }
+  cctx.globalAlpha = 1;
+
+  // 4. ส่งภาพไปหน้าต่าง output (ถ้าเปิดอยู่)
+  if (popup && !popup.closed) {
+    const outBitmap = await createImageBitmap(compCanvas);
+    popup.postMessage({ bitmap: outBitmap }, '*', [outBitmap]);
+  }
+
+  frameCounter++;
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
